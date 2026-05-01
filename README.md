@@ -1,100 +1,155 @@
 # ai-gateway
 
-Self-hosted LLM gateway for air-gapped environments. Accepts requests from the
-Claude Code CLI on the Anthropic Messages API and forwards them, via
-[LiteLLM](https://github.com/BerriAI/litellm), to any OpenAI-compatible backend.
+## What this is
 
-```
-Claude Code CLI ──(POST /v1/messages, x-api-key)──▶ ai-gateway ──(LiteLLM)──▶ OpenAI-compatible backend
-                                                       │
-                                                       └─ authorize: api key + source-IP allowlist
-```
+A LiteLLM proxy running locally with a custom Python guardrail in front
+of AWS Bedrock (Claude Sonnet 4.5 in `ap-southeast-2`, accessed via an
+inference profile). Every incoming chat-completions request runs through
+a `pre_call` PII guardrail that blocks SSNs and credit-card numbers and
+redacts emails, phone numbers, and `sk-`-prefixed API keys before the
+prompt reaches the model. **Dev/local only — do not deploy as-is.**
 
-The gateway is intentionally split into small pieces so the planned next
-components — prompt-security checks and prompt/response auditing — can drop
-in as router hooks without touching the LLM layer.
+## Prerequisites
 
-## Project layout
+- Docker + Docker Compose
+- AWS credentials with `bedrock:InvokeModel` and
+  `bedrock:InvokeModelWithResponseStream` permission on the inference
+  profile ARN configured in `config.yaml`.
+- Model access enabled for `anthropic.claude-sonnet-4-5` in the AWS
+  Bedrock console for `ap-southeast-2`.
 
-```
-app/
-  main.py             FastAPI app factory
-  config.py           pydantic-settings (.env)
-  middleware/
-    auth.py             api key + IP allowlist (yaml-backed)
-    prompt_security.py  pluggable rule engine; blocks on match
-                        ← future: audit.py, rate_limit.py
-  routers/
-    health.py         GET /healthz
-    messages.py       POST /v1/messages   ← Claude CLI talks here
-  services/
-    llm.py            LiteLLM wrapper (acompletion, streaming)
-  adapters/
-    anthropic.py      Anthropic ↔ OpenAI request/response translation
-```
-
-## Requirements
-
-- Python 3.10+ (uses PEP 604 `X | Y` type hints)
-
-## Quick start
-
-```bash
-python3.10 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env                     # edit BACKEND_API_BASE / BACKEND_API_KEY / BACKEND_MODEL
-cp auth.example.yaml auth.yaml           # gateway api key(s) + allowed IPs
-cp security.example.yaml security.yaml   # optional: prompt-security rules
-
-uvicorn app.main:app --host 0.0.0.0 --port 8080
-```
-
-Health check:
-
-```bash
-curl http://localhost:8080/healthz
-```
-
-## Run with Docker
+## Setup
 
 ```bash
 cp .env.example .env
-cp auth.example.yaml auth.yaml
-cp security.example.yaml security.yaml   # required by the volume mount; can be empty rules
-
-docker compose -f docker-compose/docker-compose.yml up --build
 ```
 
-- Settings come from `.env` via the compose `env_file`.
-- `auth.yaml` and `security.yaml` are mounted read-only into `/app/` — config changes require a container restart (engines load once at startup).
-- The image runs as a non-root `gateway` user and exposes port 8080.
+Then edit `.env`:
 
-## Pointing Claude Code at the gateway
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — your Bedrock-enabled
+  IAM credentials.
+- `LITELLM_MASTER_KEY` — pick a strong random value, must start with
+  `sk-`.
+- `LITELLM_SALT_KEY` — generate with:
+
+  ```bash
+  openssl rand -hex 32
+  ```
+
+## Run
 
 ```bash
-export ANTHROPIC_BASE_URL=http://<gateway-host>:8080
-export ANTHROPIC_API_KEY=<api_key from auth.yaml>
-claude
+docker compose up -d
+docker compose logs -f litellm
 ```
 
-Claude Code will issue `POST {ANTHROPIC_BASE_URL}/v1/messages` with the
-`x-api-key` header set to `ANTHROPIC_API_KEY`. The gateway authorizes on
-that header **plus** the source IP, then forwards to the backend you
-configured in `.env`.
+Wait for `Application startup complete`. Health check:
 
-## Behind a reverse proxy
+```bash
+curl http://localhost:4000/health/liveliness
+```
 
-If the gateway runs behind a proxy that adds `X-Forwarded-For`, set
-`TRUST_PROXY_HEADERS=true` in `.env`. Otherwise the source IP is taken
-from the TCP peer address, which is the safe default.
+## Test the guardrail
 
-## Roadmap
+All three tests POST to `http://localhost:4000/v1/chat/completions` with
+the master key, model `claude-4-5`.
 
-- [x] Auth: api key + source-IP allowlist
-- [x] Anthropic ↔ OpenAI translation (text + streaming)
-- [x] Prompt-security rules (regex-based, pluggable engine)
-- [ ] Tool-use translation
-- [ ] Prompt/response audit log (durable storage)
-- [ ] Multi-backend / model routing
-- [ ] Rate limiting & per-client quotas
+### 1. Clean prompt (200 OK)
+
+```bash
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-4-5",
+    "messages": [{"role": "user", "content": "Say hi in one word."}]
+  }'
+```
+
+Expected: HTTP 200 with a normal chat-completion JSON body.
+
+### 2. Prompt with SSN (400, blocked)
+
+```bash
+curl -i http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-4-5",
+    "messages": [{"role": "user", "content": "my ssn is 123-45-6789"}]
+  }'
+```
+
+Expected: HTTP 400 with body containing
+`"Prompt contains restricted content (type: SSN)"`. The prompt is not
+forwarded to Bedrock.
+
+### 3. Prompt with email (200, redacted)
+
+```bash
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-4-5",
+    "messages": [{"role": "user", "content": "contact me at alice@example.com"}]
+  }'
+```
+
+Expected: HTTP 200. The model never sees `alice@example.com`; the prompt
+it receives contains `[REDACTED_EMAIL]`, and any echo of that string in
+the response will refer to the placeholder.
+
+### 4. Streaming (verify SSE works)
+
+```bash
+curl -N http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-4-5",
+    "messages": [{"role": "user", "content": "count to five slowly"}],
+    "stream": true
+  }'
+```
+
+Expected: a stream of `data: {...}` SSE lines terminated by
+`data: [DONE]`.
+
+## Open the UI
+
+Visit `http://localhost:4000/ui` and log in with the master key.
+LiteLLM's built-in guardrails can be configured here later alongside
+the custom Python guardrail in `guardrails/guardrails.py`.
+
+## Adding a new pattern to the guardrail
+
+Edit `guardrails/guardrails.py`:
+
+- For a new BLOCK rule (reject the prompt), add a check inside
+  `CompanyPIIGuardrail._check_block` that raises `HTTPException(400,
+  ...)` with a generic detail string.
+- For a new REDACT rule (rewrite in place), add a compiled regex at
+  module scope and a new `.sub(...)` call inside
+  `CompanyPIIGuardrail._redact`.
+
+Reload:
+
+```bash
+docker compose restart litellm
+```
+
+## Troubleshooting
+
+- **`ModuleNotFoundError: guardrails`** — check the volume mount in
+  `docker-compose.yml`. The host directory `./guardrails` must map to
+  `/app/guardrails`, and `guardrails/__init__.py` must exist (even
+  empty).
+- **DB connection errors** — `DATABASE_URL` must use `db` as the host
+  (the docker-compose service name), not `localhost`.
+- **401 on every request** — the `Authorization: Bearer ...` value in
+  the request must match `LITELLM_MASTER_KEY` from `.env` exactly.
+- **Bedrock `AccessDeniedException`** — verify IAM permissions on the
+  inference profile ARN, and that model access is enabled for
+  `anthropic.claude-sonnet-4-5` in the Bedrock console for
+  `ap-southeast-2`.
