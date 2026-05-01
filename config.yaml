@@ -4,6 +4,12 @@ model_list:
       model: bedrock/arn:aws:bedrock:ap-southeast-2:135090718032:inference-profile/au.anthropic.claude-sonnet-4-5-20250929-v1:0
       aws_region_name: ap-southeast-2
 
+  - model_name: custom-openai
+    litellm_params:
+      model: openai/os.environ/OPENAI_COMPAT_MODEL
+      api_base: os.environ/OPENAI_COMPAT_API_BASE
+      api_key: os.environ/OPENAI_COMPAT_API_KEY
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
