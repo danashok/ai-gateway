@@ -21,7 +21,7 @@ services:
       - litellm-net
 
   db:
-    image: postgres:16
+    image: postgres:18-alpine
     volumes:
       - litellm_pg_data:/var/lib/postgresql/data
     environment:
