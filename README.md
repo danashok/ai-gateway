@@ -116,6 +116,33 @@ curl -N http://localhost:4000/v1/chat/completions \
 Expected: a stream of `data: {...}` SSE lines terminated by
 `data: [DONE]`.
 
+## Run the unit tests
+
+The guardrails ship with a pure-regex test suite (no proxy, no Docker, no
+network) under `tests/`. The root `conftest.py` stubs out `litellm` and
+`fastapi` if they aren't installed, so the only hard requirement is
+`pytest`.
+
+```bash
+python3 -m pip install --user pytest
+python3 -m pytest tests/ -v
+```
+
+You should see ~100 tests pass in well under a second. Run this before
+every change to `guardrails/guardrails.py` — it's the fastest way to
+catch a regex regression without restarting the container.
+
+To run a single file or class:
+
+```bash
+python3 -m pytest tests/test_company_pii_guardrail.py -v
+python3 -m pytest tests/test_prompt_injection_guardrail.py::TestRoleScoping -v
+```
+
+The tests intentionally do **not** depend on the real `litellm` package,
+so they run identically inside the Docker image (`docker compose run
+--rm litellm python -m pytest tests/`) and on a bare host.
+
 ## Open the UI
 
 Visit `http://localhost:4000/ui` and log in with the master key.

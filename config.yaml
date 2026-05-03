@@ -23,6 +23,12 @@ guardrails:
       mode: "pre_call"
       default_on: true
 
+  - guardrail_name: "prompt-injection-policy"
+    litellm_params:
+      guardrail: guardrails.guardrails.PromptInjectionGuardrail
+      mode: "pre_call"
+      default_on: true
+
 litellm_settings:
   drop_params: true
   set_verbose: true     # NEVER true in prod, leaks API keys
