@@ -15,21 +15,44 @@ general_settings:
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
   store_prompts_in_spend_logs: true
+  use_x_forwarded_for: true
 
 guardrails:
   - guardrail_name: "company-pii-policy"
     litellm_params:
-      guardrail: guardrails.guardrails.CompanyPIIGuardrail
-      mode: "pre_call"
+      guardrail: generic_guardrail_api
+      mode: pre_call
+      api_base: http://guardrails:8080/beta/litellm_basic_guardrail_api
+      api_key: os.environ/GUARDRAIL_API_KEY
+      unreachable_fallback: fail_closed
       default_on: true
+      headers:
+        X-Guardrail-Auth-Key: os.environ/GUARDRAIL_API_KEY
+      extra_headers:
+        - x-forwarded-for
+        - x-real-ip
+        - x-request-id
+      additional_provider_specific_params:
+        policy: pii
 
   - guardrail_name: "prompt-injection-policy"
     litellm_params:
-      guardrail: guardrails.guardrails.PromptInjectionGuardrail
-      mode: "pre_call"
+      guardrail: generic_guardrail_api
+      mode: pre_call
+      api_base: http://guardrails:8080/beta/litellm_basic_guardrail_api
+      api_key: os.environ/GUARDRAIL_API_KEY
+      unreachable_fallback: fail_closed
       default_on: true
+      headers:
+        X-Guardrail-Auth-Key: os.environ/GUARDRAIL_API_KEY
+      extra_headers:
+        - x-forwarded-for
+        - x-real-ip
+        - x-request-id
+      additional_provider_specific_params:
+        policy: prompt_injection
 
 litellm_settings:
   drop_params: true
-  set_verbose: true     # NEVER true in prod, leaks API keys
+  set_verbose: false
   salt_key: os.environ/LITELLM_SALT_KEY

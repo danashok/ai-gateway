@@ -3,10 +3,10 @@ services:
     image: ghcr.io/berriai/litellm-database:main-stable
     volumes:
       - ./config.yaml:/app/config.yaml
-      - ./guardrails:/app/guardrails
     env_file:
       - .env
     command: ["--config", "/app/config.yaml", "--detailed_debug"]
+    container_name: litellm_app
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:
@@ -22,14 +22,13 @@ services:
 
   db:
     image: postgres:18-alpine
+    container_name: litellm_db
+    env_file:
+      - .env
     volumes:
       - litellm_pg_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,9 +37,10 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:latest
+    container_name: litellm_pgadmin
+    env_file:
+      - .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
@@ -58,3 +58,5 @@ volumes:
 
 networks:
   litellm-net:
+    name: litellm-net
+    external: true
