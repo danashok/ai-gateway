@@ -5,27 +5,253 @@
 # own pg/redis sub-subcharts.
 
 litellm-helm:
-  # litellm-helm top-level overrides
-  # masterkey: ""
-  # replicaCount: 1
-  # image:
-  #   repository: ghcr.io/berriai/litellm-database
-  #   tag: ""
+  replicaCount: 1
+  # numWorkers: 2
 
-  # gate the bundled postgres/redis dependencies
+  image:
+    repository: ghcr.io/berriai/litellm-database
+    pullPolicy: Always
+    tag: ""
+
+  imagePullSecrets: []
+  nameOverride: "litellm"
+  fullnameOverride: ""
+
+  serviceAccount:
+    create: false
+    automount: true
+    annotations: {}
+    name: ""
+
+  deploymentAnnotations: {}
+  deploymentLabels: {}
+  deploymentMinReadySeconds: 0
+
+  podAnnotations: {}
+  podLabels: {}
+
+  strategy: {}
+
+  terminationGracePeriodSeconds: 90
+  topologySpreadConstraints: []
+
+  podSecurityContext: {}
+  securityContext: {}
+
+  environmentSecrets: []
+  environmentConfigMaps: []
+
+  service:
+    type: ClusterIP
+    port: 4000
+
+  separateHealthApp: false
+  separateHealthPort: 8081
+
+  livenessProbe:
+    path: /health/liveliness
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 1
+    successThreshold: 1
+    failureThreshold: 3
+
+  readinessProbe:
+    path: /health/readiness
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 1
+    successThreshold: 1
+    failureThreshold: 3
+
+  startupProbe:
+    path: /health/readiness
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 1
+    successThreshold: 1
+    failureThreshold: 30
+
+  ingress:
+    enabled: false
+    className: "nginx"
+    labels: {}
+    annotations:
+      nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+      nginx.ingress.kubernetes.io/compute-full-forwarded-for: "true"
+      nginx.ingress.kubernetes.io/enable-real-ip: "true"
+      nginx.ingress.kubernetes.io/proxy-real-ip-cidr: "0.0.0.0/0"
+    hosts:
+      - host: api.example.local
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+    tls: []
+
+  # masterkey: changeit
+  masterkeySecretName: ""
+  masterkeySecretKey: ""
+
+  proxyConfigMap:
+    create: true
+
+  proxy_config:
+    model_list:
+      - model_name: gpt-3.5-turbo
+        litellm_params:
+          model: gpt-3.5-turbo
+          api_key: eXaMpLeOnLy
+      - model_name: fake-openai-endpoint
+        litellm_params:
+          model: openai/fake
+          api_key: fake-key
+          api_base: https://exampleopenaiendpoint-production.up.railway.app/
+    general_settings:
+      master_key: os.environ/PROXY_MASTER_KEY
+
+  resources: {}
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+
+  keda:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    pollingInterval: 30
+    cooldownPeriod: 300
+    restoreToOriginalReplicaCount: false
+    scaledObject:
+      annotations: {}
+    triggers: []
+    behavior: {}
+
+  volumes: []
+  volumeMounts: []
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # ----------------------------------------------------------------------------
+  # Postgres connection.
+  #
+  # To use an EXISTING postgres (instead of the bundled Bitnami chart):
+  #   1. Set `db.useExisting: true`
+  #   2. Set `db.deployStandalone: false` (disables the Bitnami postgres subchart)
+  #   3. Point `db.endpoint` at your postgres host (or use `db.secret.endpointKey`
+  #      to source the host from the same secret as the credentials)
+  #   4. Set `db.database` to the database name
+  #   5. Create a k8s Secret in the release namespace holding the username/password
+  #      and reference it via `db.secret.{name,usernameKey,passwordKey}`
+  #   6. Leave `db.url` as-is — it gets templated with $(DATABASE_USERNAME),
+  #      $(DATABASE_PASSWORD), $(DATABASE_HOST), $(DATABASE_NAME) from the secret/env.
+  #   7. Delete (or ignore) the `postgresql:` block below — it's only consumed
+  #      when `db.deployStandalone: true`.
+  # ----------------------------------------------------------------------------
   db:
+    useExisting: false
+    endpoint: localhost
+    database: litellm
+    url: postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST)/$(DATABASE_NAME)
+    secret:
+      name: postgres
+      usernameKey: username
+      passwordKey: password
+      # Optional: when set, DATABASE_HOST is sourced from this secret key
+      # instead of `db.endpoint` above. Useful when host is also a secret.
+      endpointKey: ""
+    useStackgresOperator: false
+    # Set to false when using an existing postgres (see block above).
     deployStandalone: true
-  postgresql:
-    enabled: true
-    # auth:
-    #   postgresPassword: ""
-    #   username: litellm
-    #   password: ""
-    #   database: litellm
 
+  lifecycle: {}
+
+  # Bitnami postgresql sub-subchart — ONLY consumed when db.deployStandalone:true.
+  # When using an existing postgres (see `db:` block above), this entire section
+  # is ignored and the subchart is not installed.
+  postgresql:
+    architecture: standalone
+    image:
+      registry: registry-1.docker.io
+      repository: bitnami/postgresql
+      tag: latest
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    auth:
+      username: litellm
+      database: litellm
+      password: NoTaGrEaTpAsSwOrD
+      postgres-password: NoTaGrEaTpAsSwOrD
+
+  # ----------------------------------------------------------------------------
+  # Redis (optional — only needed if proxy_config has `cache: true`).
+  #
+  # To use an EXISTING redis (instead of the bundled Bitnami chart):
+  #   1. Leave `redis.enabled: false` (this disables the Bitnami redis subchart)
+  #   2. Create a k8s Secret in the release namespace with REDIS_HOST, REDIS_PORT,
+  #      REDIS_PASSWORD (or a single REDIS_URL) as keys.
+  #   3. Wire it into the proxy pod by adding the secret name to
+  #      `environmentSecrets:` at the top of this file, e.g.:
+  #         environmentSecrets:
+  #           - litellm-redis-secret
+  #   4. Make sure `cache: true` is set in `proxy_config` (or the relevant
+  #      cache-using guardrail/router config) so LiteLLM actually reads them.
+  #   5. The `image:` block below is then unused and can be left as-is.
+  # ----------------------------------------------------------------------------
   redis:
+    enabled: false
+    architecture: standalone
+    image:
+      registry: registry-1.docker.io
+      repository: bitnami/redis
+      tag: latest
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+
+  migrationJob:
     enabled: true
-    # architecture: standalone
-    # auth:
-    #   enabled: true
-    #   password: ""
+    retries: 3
+    backoffLimit: 4
+    disableSchemaUpdate: false
+    serviceAccountName: ""
+    annotations: {}
+    ttlSecondsAfterFinished: 120
+    resources: {}
+    extraContainers: []
+    extraInitContainers: []
+    hooks:
+      argocd:
+        enabled: true
+      helm:
+        enabled: false
+
+  envVars: {}
+  extraEnvVars: {}
+
+  command: {}
+  args: {}
+
+  extraResources: []
+
+  pdb:
+    enabled: false
+    minAvailable: null
+    maxUnavailable: null
+    annotations: {}
+    labels: {}
+
+  serviceMonitor:
+    enabled: false
+    labels: {}
+    annotations: {}
+    interval: 15s
+    scrapeTimeout: 10s
+    relabelings: []
+    namespaceSelector:
+      matchNames: []
