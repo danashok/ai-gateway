@@ -124,7 +124,15 @@ ingress:
   className: "nginx"
   labels: {}
   annotations:
-    {}
+    # Forward the real client IP to LiteLLM via X-Forwarded-For so that
+    # `general_settings.use_x_forwarded_for: true` in config.yaml resolves to the
+    # caller's IP instead of the ingress controller's pod IP.
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    nginx.ingress.kubernetes.io/compute-full-forwarded-for: "true"
+    nginx.ingress.kubernetes.io/enable-real-ip: "true"
+    # Trust X-Forwarded-For from any upstream proxy/LB. Tighten this CIDR if you
+    # know the address range of the LB sitting in front of the ingress controller.
+    nginx.ingress.kubernetes.io/proxy-real-ip-cidr: "0.0.0.0/0"
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
