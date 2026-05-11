@@ -153,6 +153,32 @@ masterkeySecretName: ""
 # if set, use this secret key for the master key; otherwise, use the default key
 masterkeySecretKey: ""
 
+# All chart-managed secret env vars are materialized via ricoberger's
+# vault-secrets-operator (apiVersion: ricoberger.de/v1alpha1, kind: VaultSecret).
+# The operator reads each `path` and syncs the listed `envs[].key`s into a k8s
+# Secret named `<fullname>-masterkey` / `<fullname>-dbcredentials`. The
+# deployment then mounts each env var via secretKeyRef using that same list.
+#
+# To add a new secret env var: append `{ name: ENV_VAR_NAME, key: vault-key }`
+# to the relevant `envs:` list — no template change needed.
+vault:
+  masterkey:
+    # Vault path holding litellm secrets (master key, etc.)
+    path: ""
+    # env-var → vault-key bindings. The deployment emits one secretKeyRef per
+    # entry. Default covers PROXY_MASTER_KEY only; add more entries as needed.
+    envs:
+      - name: PROXY_MASTER_KEY
+        key: masterkey
+  dbcredentials:
+    # Vault path holding postgres credentials.
+    path: ""
+    envs:
+      - name: DATABASE_USERNAME
+        key: username
+      - name: DATABASE_PASSWORD
+        key: password
+
 proxyConfigMap:
   # when true, creates a new configmap
   create: true

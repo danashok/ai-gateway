@@ -92,6 +92,29 @@ litellm-helm:
   masterkeySecretName: ""
   masterkeySecretKey: ""
 
+  # --------------------------------------------------------------------------
+  # Vault-backed secrets (ricoberger vault-secrets-operator).
+  # apiVersion: ricoberger.de/v1alpha1, kind: VaultSecret — hardcoded in templates.
+  #
+  # Each entry in `envs:` produces one container env var sourced via
+  # secretKeyRef from the vault-synced k8s Secret. To add a new secret env var
+  # (e.g. a third-party API key), append `{ name: ENV_NAME, key: vault-key }`
+  # under the appropriate path's `envs:` — no template edit needed.
+  # --------------------------------------------------------------------------
+  vault:
+    masterkey:
+      path: "myvault/liteelm"
+      envs:
+        - name: PROXY_MASTER_KEY
+          key: masterkey
+    dbcredentials:
+      path: "myvault/db"
+      envs:
+        - name: DATABASE_USERNAME
+          key: username
+        - name: DATABASE_PASSWORD
+          key: password
+
   proxyConfigMap:
     create: true
 

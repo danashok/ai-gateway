@@ -60,51 +60,33 @@ spec:
               value: "{{ .Values.listen | default "0.0.0.0" }}"
             - name: PORT
               value: {{ .Values.service.port | quote}}
+            {{- range .Values.vault.dbcredentials.envs }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "litellm.fullname" $ }}-dbcredentials
+                  key: {{ .key }}
+            {{- end }}
+            {{- range .Values.vault.masterkey.envs }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "litellm.fullname" $ }}-masterkey
+                  key: {{ .key }}
+            {{- end }}
             {{- if .Values.db.deployStandalone }}
-            - name: DATABASE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "litellm.fullname" . }}-dbcredentials
-                  key: username
-            - name: DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "litellm.fullname" . }}-dbcredentials
-                  key: password
             - name: DATABASE_HOST
               value: {{ .Release.Name }}-postgresql
             - name: DATABASE_NAME
               value: litellm
             {{- else if .Values.db.useExisting }}
-            - name: DATABASE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.db.secret.name }}
-                  key: {{ .Values.db.secret.usernameKey }}
-            - name: DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.db.secret.name }}
-                  key: {{ .Values.db.secret.passwordKey }}
             - name: DATABASE_HOST
-              {{- if .Values.db.secret.endpointKey }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.db.secret.name }}
-                  key: {{ .Values.db.secret.endpointKey }}
-              {{- else }}
               value: {{ .Values.db.endpoint }}
-              {{- end }}
             - name: DATABASE_NAME
               value: {{ .Values.db.database }}
             - name: DATABASE_URL
               value: {{ .Values.db.url | quote }}
             {{- end }}
-            - name: PROXY_MASTER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.masterkeySecretName | default (printf "%s-masterkey" (include "litellm.fullname" .)) }}
-                  key: {{ .Values.masterkeySecretKey | default "masterkey" }}
             {{- if .Values.redis.enabled }}
             - name: REDIS_HOST
               value: {{ include "litellm.redis.serviceName" . }}
