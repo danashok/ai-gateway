@@ -1,0 +1,31 @@
+# CENTRAL-FZ2 TEST environment overrides.
+# Everything under the `litellm-helm:` key is passed through to the
+# litellm-helm subchart (litellm-helm/charts/litellm-helm/values.yaml).
+# Nested keys like `postgresql:` and `redis:` are forwarded to litellm-helm's
+# own pg/redis sub-subcharts.
+
+litellm-helm:
+  # litellm-helm top-level overrides
+  # masterkey: ""
+  # replicaCount: 1
+  # image:
+  #   repository: ghcr.io/berriai/litellm-database
+  #   tag: ""
+
+  # gate the bundled postgres/redis dependencies
+  db:
+    deployStandalone: true
+  postgresql:
+    enabled: true
+    # auth:
+    #   postgresPassword: ""
+    #   username: litellm
+    #   password: ""
+    #   database: litellm
+
+  redis:
+    enabled: true
+    # architecture: standalone
+    # auth:
+    #   enabled: true
+    #   password: ""

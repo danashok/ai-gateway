@@ -1,0 +1,10 @@
+apiVersion: v2
+name: central-fz2-test
+description: CENTRAL-FZ2 TEST environment umbrella chart for litellm-helm
+type: application
+version: 0.1.0
+appVersion: "1.0"
+dependencies:
+  - name: litellm-helm
+    version: 1.82.3
+    repository: "file://../../charts/litellm-helm"
